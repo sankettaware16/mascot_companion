@@ -1,0 +1,7 @@
+/target
+**/*.rs.bk
+Cargo.lock
+
+# Generated pet packs (made by companion-convert from your avatars).
+/pets/
+dist/

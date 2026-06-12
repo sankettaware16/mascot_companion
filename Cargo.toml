@@ -1,0 +1,45 @@
+[package]
+name = "companion"
+version = "0.1.0"
+edition = "2021"
+description = "A tiny living pixel companion that walks, flies and feels at home on your desktop."
+license = "MIT"
+default-run = "companion"
+
+# The resident pet. Deliberately does NOT depend on image/SVG crates.
+[[bin]]
+name = "companion"
+path = "src/main.rs"
+
+# One-shot tool: turns a downloaded avatar (PNG/JPG/SVG) into a pet pack.
+# Only this binary links the heavy image/SVG decoders.
+[[bin]]
+name = "companion-convert"
+path = "src/bin/convert.rs"
+
+[dependencies]
+winit = "0.30"
+wgpu = "29"
+pollster = "0.4"
+bytemuck = { version = "1", features = ["derive"] }
+glam = "0.33"
+font8x8 = "0.3"
+rand = "0.8"
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+
+# Used ONLY by the `companion-convert` binary (avatar -> pet pack).
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
+resvg = "0.47"
+
+# Global cursor + override-redirect overlay windows live on X11 (works natively
+# and under XWayland). Optional so the crate still builds on win/mac.
+[target.'cfg(unix)'.dependencies]
+x11rb = "0.13"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

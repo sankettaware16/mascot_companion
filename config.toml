@@ -1,0 +1,47 @@
+# COMPANION — configuration
+# Everything here is optional. Delete this file and sensible defaults are used.
+# Edit while running, then restart the app to apply.
+
+# What your companion answers to.
+name = "Pico"
+
+# Pixel scale. 3 ≈ a small palm-sized pet; raise for accessibility.
+scale = 3.0
+
+# Base body colour (R, G, B), 0–255. The whole creature is recoloured from this.
+body_color = [255, 176, 84]
+
+# Use your own pet instead of the built-in creature.
+#   1. companion-convert avatars/thor.svg     (or .png/.jpg)
+#   2. uncomment and set the line below
+#   3. companion
+# pet = "thor"
+
+# React to your mouse cursor.
+follow_cursor = true
+# Shy personality: run *away* from the cursor instead of toward it.
+flee_cursor = false
+
+# Pick the pet up with the mouse and throw it (it gets angry if you do it
+# too often!).
+allow_grab = true
+# Treat open windows' top edges as platforms — the pet lands on and walks
+# along your browser/editor, and perches on the active window to watch you.
+climb_windows = true
+# Rush over excitedly when a desktop notification pops up.
+react_notifications = true
+
+# Frames per second while active. Automatically drops to ~8 fps when resting.
+fps = 60
+
+# Accessibility: no flying, gentle walks only.
+reduced_motion = false
+
+[reminders]
+enabled = true
+# Friendly water nudge every N minutes.
+water_minutes = 45
+# Suggest resting your eyes after N continuous active minutes.
+eye_rest_minutes = 25
+# Suggest a stretch/break after N continuous active minutes.
+break_minutes = 55

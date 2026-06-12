@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="200" height="260" viewBox="0 0 200 260">
+  <!-- cape -->
+  <path d="M60 90 L40 220 L100 200 L160 220 L140 90 Z" fill="#b3261e"/>
+  <!-- body -->
+  <rect x="74" y="86" width="52" height="90" rx="14" fill="#3b5bdb"/>
+  <!-- head -->
+  <circle cx="100" cy="64" r="30" fill="#ffd8a8"/>
+  <!-- hair -->
+  <path d="M70 60 Q100 20 130 60 Q120 44 100 40 Q80 44 70 60 Z" fill="#f1c40f"/>
+  <!-- hammer handle -->
+  <rect x="150" y="120" width="10" height="70" rx="4" fill="#8a5a2b"/>
+  <!-- hammer head -->
+  <rect x="138" y="96" width="34" height="30" rx="4" fill="#9aa5b1"/>
+  <!-- legs -->
+  <rect x="78" y="176" width="18" height="56" rx="6" fill="#1f2d5a"/>
+  <rect x="104" y="176" width="18" height="56" rx="6" fill="#1f2d5a"/>
+</svg>

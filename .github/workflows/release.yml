@@ -1,0 +1,101 @@
+# Build shareable bundles for Linux, Windows and macOS whenever you push a
+# version tag, and attach them to a GitHub Release.
+#
+#   git tag v0.1.0
+#   git push origin v0.1.0
+#   -> Release page with: linux .tar.gz, windows .zip, macOS .app.zip (arm64 + intel)
+
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            bundle: linux-x86_64
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            bundle: windows-x86_64
+          - os: macos-latest # Apple Silicon
+            target: aarch64-apple-darwin
+            bundle: macos-arm64
+          - os: macos-13 # Intel
+            target: x86_64-apple-darwin
+            bundle: macos-x86_64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Build
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Package (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          mkdir -p dist/companion
+          cp target/${{ matrix.target }}/release/companion \
+             target/${{ matrix.target }}/release/companion-convert \
+             config.toml README.md install.sh dist/companion/
+          tar -C dist -czf companion-${{ matrix.bundle }}.tar.gz companion
+
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist/companion | Out-Null
+          Copy-Item target/${{ matrix.target }}/release/companion.exe dist/companion/
+          Copy-Item target/${{ matrix.target }}/release/companion-convert.exe dist/companion/
+          Copy-Item config.toml,README.md dist/companion/
+          Compress-Archive -Path dist/companion -DestinationPath companion-${{ matrix.bundle }}.zip
+
+      - name: Package (macOS .app)
+        if: runner.os == 'macOS'
+        run: |
+          APP="dist/Companion.app"
+          mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+          cp target/${{ matrix.target }}/release/companion "$APP/Contents/MacOS/Companion"
+          cp target/${{ matrix.target }}/release/companion-convert "$APP/Contents/MacOS/"
+          cp config.toml "$APP/Contents/Resources/"
+          cat > "$APP/Contents/Info.plist" <<'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>CFBundleName</key><string>Companion</string>
+            <key>CFBundleDisplayName</key><string>Companion</string>
+            <key>CFBundleIdentifier</key><string>dev.companion.pet</string>
+            <key>CFBundleExecutable</key><string>Companion</string>
+            <key>CFBundlePackageType</key><string>APPL</string>
+            <key>CFBundleShortVersionString</key><string>0.1.0</string>
+            <key>LSUIElement</key><true/>
+            <key>NSHighResolutionCapable</key><true/>
+          </dict>
+          </plist>
+          PLIST
+          # ad-hoc signature so Gatekeeper shows "unidentified developer"
+          # instead of "damaged" (right-click -> Open still required)
+          codesign --force --deep -s - "$APP"
+          (cd dist && zip -qry "../companion-${{ matrix.bundle }}.app.zip" Companion.app)
+
+      - name: Upload to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            companion-*.tar.gz
+            companion-*.zip
+            companion-*.app.zip
