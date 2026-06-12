@@ -1,6 +1,6 @@
 [package]
 name = "companion"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "A tiny living pixel companion that walks, flies and feels at home on your desktop."
 license = "MIT"
@@ -19,9 +19,6 @@ path = "src/bin/convert.rs"
 
 [dependencies]
 winit = "0.30"
-wgpu = "29"
-pollster = "0.4"
-bytemuck = { version = "1", features = ["derive"] }
 glam = "0.33"
 font8x8 = "0.3"
 rand = "0.8"
@@ -32,10 +29,27 @@ toml = "0.8"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
 resvg = "0.47"
 
+# GPU rendering is used everywhere except Windows (DWM rejects per-pixel-alpha
+# swapchains there; Windows presents via UpdateLayeredWindow instead).
+[target.'cfg(not(windows))'.dependencies]
+wgpu = "29"
+pollster = "0.4"
+bytemuck = { version = "1", features = ["derive"] }
+
 # Global cursor + override-redirect overlay windows live on X11 (works natively
 # and under XWayland). Optional so the crate still builds on win/mac.
 [target.'cfg(unix)'.dependencies]
 x11rb = "0.13"
+
+# Windows: the compositor refuses per-pixel-alpha GPU surfaces, so the pet is
+# presented via UpdateLayeredWindow (CPU-composed BGRA) + native cursor probe.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Gdi",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_UI_Input_KeyboardAndMouse",
+] }
 
 [profile.release]
 opt-level = 3

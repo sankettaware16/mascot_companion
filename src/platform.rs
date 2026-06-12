@@ -240,7 +240,42 @@ mod imp {
     }
 }
 
-#[cfg(not(unix))]
+#[cfg(windows)]
+mod imp {
+    use super::*;
+    use windows_sys::Win32::Foundation::POINT;
+    use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_LBUTTON};
+    use windows_sys::Win32::UI::WindowsAndMessaging::GetCursorPos;
+
+    /// Native Windows probe: global cursor + left-button state. That's enough
+    /// for cursor-following and grab-and-throw. Window scouting (platforms,
+    /// notifications) isn't implemented on Windows yet — `scout` returns
+    /// `None` and those behaviours simply stay dormant.
+    pub struct Probe;
+
+    impl Probe {
+        pub fn new() -> Option<Self> {
+            Some(Probe)
+        }
+
+        pub fn pointer(&self) -> Option<PointerState> {
+            unsafe {
+                let mut p = POINT { x: 0, y: 0 };
+                if GetCursorPos(&mut p) == 0 {
+                    return None;
+                }
+                let button1 = (GetAsyncKeyState(VK_LBUTTON as i32) as u16 & 0x8000) != 0;
+                Some(PointerState { pos: Vec2::new(p.x as f32, p.y as f32), button1 })
+            }
+        }
+
+        pub fn scout(&self) -> Option<ScoutInfo> {
+            None
+        }
+    }
+}
+
+#[cfg(not(any(unix, windows)))]
 mod imp {
     use super::*;
     pub struct Probe;

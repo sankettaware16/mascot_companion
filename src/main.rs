@@ -9,13 +9,20 @@
 mod activity;
 mod app;
 mod banner;
+// The CPU compositor only *presents* on Windows, but it's portable Rust —
+// compiled everywhere so it stays unit-testable from Linux.
+#[cfg_attr(not(windows), allow(dead_code))]
+mod compose;
 mod config;
 mod creature;
 mod notify;
 mod pack;
 mod platform;
 mod reminder;
+#[cfg(not(windows))]
 mod render;
+#[cfg(windows)]
+mod win_present;
 mod world;
 
 use app::App;

@@ -4,21 +4,32 @@
 
 use crate::activity::Activity;
 use crate::config::Config;
-use crate::creature::animation::{self, Emote, Sprites, CELL};
+use crate::creature::animation::{self, Emote, Sprites};
 use crate::creature::emotion::Mood;
 use crate::creature::{Behavior, Creature, Locomotion, Senses};
 use crate::notify::NotifyWatch;
 use crate::pack::PetPack;
 use crate::platform::Probe;
+#[cfg(not(windows))]
+use crate::creature::animation::CELL;
+#[cfg(not(windows))]
 use crate::render::{Gpu, Instance, WindowRender};
 use crate::reminder::Wellness;
 use crate::world::{Monitor, World};
+#[cfg(windows)]
+use crate::{
+    banner::Banner,
+    compose::{compose, ComposeArgs, Src},
+    win_present::Layered,
+};
 use glam::Vec2;
 use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Instant;
 use winit::application::ApplicationHandler;
-use winit::dpi::{PhysicalPosition, PhysicalSize};
+#[cfg(not(windows))]
+use winit::dpi::PhysicalPosition;
+use winit::dpi::PhysicalSize;
 use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, ControlFlow};
 use winit::window::{Window, WindowId, WindowLevel};
@@ -37,10 +48,24 @@ pub struct App {
     cfg: Config,
     sprites: Sprites,
     pet: Option<PetGeom>,
+    pet_pack: Option<PetPack>,
     world: World,
+    #[cfg(not(windows))]
     gpu: Option<Gpu>,
+    #[cfg(not(windows))]
     windows: Vec<WindowRender>,
+    #[cfg(not(windows))]
     ids: Vec<WindowId>,
+    // Windows presents via one small CPU-composed layered window instead of
+    // per-monitor GPU overlays (DWM rejects per-pixel-alpha swapchains).
+    #[cfg(windows)]
+    layered: Option<Layered>,
+    #[cfg(windows)]
+    layer_window: Option<Arc<Window>>,
+    #[cfg(windows)]
+    layer_shown: bool,
+    #[cfg(windows)]
+    banner_img: Option<(String, Banner)>,
     creature: Option<Creature>,
     activity: Activity,
     wellness: Wellness,
@@ -72,10 +97,22 @@ impl App {
             cfg,
             sprites,
             pet: None,
+            pet_pack: None,
             world: World { monitors: vec![], platforms: vec![] },
+            #[cfg(not(windows))]
             gpu: None,
+            #[cfg(not(windows))]
             windows: vec![],
+            #[cfg(not(windows))]
             ids: vec![],
+            #[cfg(windows)]
+            layered: None,
+            #[cfg(windows)]
+            layer_window: None,
+            #[cfg(windows)]
+            layer_shown: false,
+            #[cfg(windows)]
+            banner_img: None,
             creature: None,
             activity: Activity::new(),
             wellness: Wellness::new(),
@@ -97,6 +134,7 @@ impl App {
         }
     }
 
+    #[cfg(not(windows))]
     fn overlay_attributes(
         origin: PhysicalPosition<i32>,
         size: PhysicalSize<u32>,
@@ -120,7 +158,7 @@ impl App {
 
 impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        if !self.windows.is_empty() {
+        if self.creature.is_some() {
             return; // already initialised (e.g. on a later resume)
         }
 
@@ -145,6 +183,7 @@ impl ApplicationHandler for App {
             }
         }
 
+        #[cfg(not(windows))]
         for m in self.world.monitors.clone().iter() {
             let origin = PhysicalPosition::new(m.origin.x as i32, m.origin.y as i32);
             let size = PhysicalSize::new(m.size.x as u32, m.size.y as u32);
@@ -167,14 +206,45 @@ impl ApplicationHandler for App {
             self.windows.push(wr);
         }
 
+        #[cfg(windows)]
+        {
+            // One tiny window; UpdateLayeredWindow controls its size, position,
+            // pixels and alpha each frame. Hidden until the first frame lands.
+            use winit::platform::windows::WindowAttributesExtWindows;
+            use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
+            let window = Arc::new(
+                event_loop
+                    .create_window(
+                        Window::default_attributes()
+                            .with_title("companion")
+                            .with_decorations(false)
+                            .with_resizable(false)
+                            .with_transparent(false)
+                            .with_visible(false)
+                            .with_skip_taskbar(true)
+                            .with_window_level(WindowLevel::AlwaysOnTop)
+                            .with_inner_size(PhysicalSize::new(4u32, 4u32)),
+                    )
+                    .expect("create pet window"),
+            );
+            let _ = window.set_cursor_hittest(false); // click-through
+            if let Ok(handle) = window.window_handle() {
+                if let RawWindowHandle::Win32(h) = handle.as_raw() {
+                    self.layered =
+                        Some(Layered::new(h.hwnd.get() as *mut core::ffi::c_void));
+                }
+            }
+            self.layer_window = Some(window);
+        }
+
         eprintln!(
-            "[companion] {} monitor(s), {} overlay window(s), cursor: {}, grab: {}, climb: {}, notifications: {}",
+            "[companion] {} monitor(s), cursor: {}, grab: {}, climb: {}, notifications: {}",
             self.world.monitors.len(),
-            self.windows.len(),
             self.probe.is_some(),
             self.cfg.allow_grab && self.probe.is_some(),
-            self.cfg.climb_windows && self.probe.is_some(),
-            self.cfg.react_notifications && (self.notify.is_some() || self.probe.is_some()),
+            self.cfg.climb_windows && self.probe.is_some() && cfg!(unix),
+            self.cfg.react_notifications
+                && (self.notify.is_some() || (self.probe.is_some() && cfg!(unix))),
         );
 
         // Spawn the creature near the bottom-centre of the primary monitor.
@@ -195,10 +265,12 @@ impl ApplicationHandler for App {
                 };
                 creature.body.half = geom.half;
                 creature.body.pos.y = m0.floor() - geom.half;
+                #[cfg(not(windows))]
                 if let Some(gpu) = self.gpu.as_mut() {
                     gpu.set_pet(&pack.pixels, pack.width, pack.height);
                 }
                 self.pet = Some(geom);
+                self.pet_pack = Some(pack);
                 eprintln!("[companion] using custom pet '{name}'");
             }
         }
@@ -225,20 +297,29 @@ impl ApplicationHandler for App {
         self.next_frame = now + std::time::Duration::from_secs_f32(1.0 / fps as f32);
         event_loop.set_control_flow(ControlFlow::WaitUntil(self.next_frame));
 
+        #[cfg(windows)]
+        self.present_layered();
+
+        #[cfg(not(windows))]
         for w in &self.windows {
             w.window.request_redraw();
         }
     }
 
+    #[allow(unused_variables)]
     fn window_event(&mut self, event_loop: &ActiveEventLoop, id: WindowId, event: WindowEvent) {
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
-            WindowEvent::Resized(size) => {
+            WindowEvent::Resized(size) =>
+            {
+                #[cfg(not(windows))]
                 if let (Some(gpu), Some(idx)) = (self.gpu.as_ref(), self.index_of(id)) {
                     self.windows[idx].resize(gpu, size.width, size.height);
                 }
             }
-            WindowEvent::RedrawRequested => {
+            WindowEvent::RedrawRequested =>
+            {
+                #[cfg(not(windows))]
                 if let Some(idx) = self.index_of(id) {
                     self.draw_window(idx);
                 }
@@ -249,6 +330,7 @@ impl ApplicationHandler for App {
 }
 
 impl App {
+    #[cfg(not(windows))]
     fn index_of(&self, id: WindowId) -> Option<usize> {
         self.ids.iter().position(|x| *x == id)
     }
@@ -444,11 +526,122 @@ impl App {
                 self.banner_text = None;
             }
         }
+        #[cfg(not(windows))]
         if let Some(gpu) = self.gpu.as_mut() {
             gpu.set_banner(self.banner_text.as_deref());
         }
     }
 
+    /// Windows: CPU-compose the whole frame and push it via UpdateLayeredWindow.
+    #[cfg(windows)]
+    fn present_layered(&mut self) {
+        let (Some(layered), Some(creature)) = (self.layered.as_ref(), self.creature.as_ref())
+        else {
+            return;
+        };
+
+        // Banner texture cache, re-rasterised only when the text changes.
+        match self.banner_text.as_deref() {
+            Some(text) => {
+                let stale = self.banner_img.as_ref().map(|(t, _)| t != text).unwrap_or(true);
+                if stale {
+                    self.banner_img = Some((text.to_string(), Banner::render(text)));
+                }
+            }
+            None => self.banner_img = None,
+        }
+        let banner = self.banner_img.as_ref().map(|(_, b)| b);
+
+        let sleeping = matches!(creature.locomotion(), Locomotion::Sleep);
+        let event_emote = match creature.behavior() {
+            Behavior::Investigate => Some(Emote::Exclaim),
+            _ if creature.mood() == Mood::Angry => Some(Emote::Exclaim),
+            _ => None,
+        };
+        let emote_src = |e: Emote| {
+            let (x, y, w, h) = self.sprites.emote_rect(e);
+            Src { pixels: &self.sprites.pixels, stride: self.sprites.width, x, y, w, h }
+        };
+
+        // Shadow fades out with height (the window only spans the pet, so a
+        // far-below ground shadow can't be drawn here).
+        let pos = creature.pos();
+        let feet = pos.y + creature.body.half;
+        let support = self.world.support_y(pos.x, feet);
+        let air = (support - feet).max(0.0);
+        let shadow = (air < 60.0).then(|| {
+            let shrink = 1.0 / (1.0 + air / 60.0);
+            let w = self
+                .pet
+                .as_ref()
+                .map(|p| p.display * 0.5)
+                .unwrap_or(24.0 * self.cfg.scale);
+            (w * shrink, 0.22 * shrink)
+        });
+
+        // Compose: custom pet pack if loaded, else the built-in atlas cell.
+        let (frame, center_y_world) =
+            if let (Some(geom), Some(pack)) = (self.pet.as_ref(), self.pet_pack.as_ref()) {
+                let (bob, sxq, syq, motion_angle) = pet_motion(
+                    creature.locomotion(),
+                    creature.anim_phase(),
+                    self.cfg.reduced_motion,
+                    geom.display,
+                );
+                let emote = event_emote.or(Emote::for_mood(creature.mood(), sleeping));
+                let f = compose(&ComposeArgs {
+                    sprite: Src {
+                        pixels: &pack.pixels,
+                        stride: pack.width,
+                        x: 0,
+                        y: 0,
+                        w: pack.width,
+                        h: pack.height,
+                    },
+                    scale_x: geom.display / pack.width as f32 * sxq,
+                    scale_y: geom.display / pack.height as f32 * syq,
+                    flip: creature.facing() < 0.0,
+                    angle: motion_angle + creature.visual_angle(),
+                    tint: mood_tint(creature.mood()),
+                    bob,
+                    emote: emote.map(emote_src),
+                    emote_size: geom.display * 0.26,
+                    banner,
+                    shadow,
+                });
+                // Pack canvas is bottom-anchored: its centre sits above the feet.
+                let cc_y = feet + geom.feet_inset - geom.display * 0.5;
+                (f, cc_y)
+            } else {
+                let (x, y, w, h) = self.sprites.cell_rect(creature.mood(), creature.pose());
+                let f = compose(&ComposeArgs {
+                    sprite: Src { pixels: &self.sprites.pixels, stride: self.sprites.width, x, y, w, h },
+                    scale_x: self.cfg.scale,
+                    scale_y: self.cfg.scale,
+                    flip: creature.facing() < 0.0,
+                    angle: creature.visual_angle(),
+                    tint: [1.0; 4],
+                    bob: 0.0,
+                    emote: event_emote.map(emote_src),
+                    emote_size: 13.0 * self.cfg.scale,
+                    banner,
+                    shadow,
+                });
+                // GPU path draws the 32px cell centred 1*scale above body centre.
+                (f, pos.y - self.cfg.scale)
+            };
+
+        let x = pos.x as i32 - frame.center_x;
+        let y = center_y_world as i32 - frame.center_y;
+        if layered.present(&frame.bgra, frame.w, frame.h, x, y) && !self.layer_shown {
+            if let Some(w) = self.layer_window.as_ref() {
+                w.set_visible(true);
+            }
+            self.layer_shown = true;
+        }
+    }
+
+    #[cfg(not(windows))]
     fn draw_window(&mut self, idx: usize) {
         let (gpu, creature) = match (self.gpu.as_ref(), self.creature.as_ref()) {
             (Some(g), Some(c)) => (g, c),

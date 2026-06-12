@@ -36,8 +36,9 @@ COMPANION — desktop pet
 =======================
 1. Double-click companion.exe  (no install needed)
 2. Edit config.toml to customise; restart to apply.
-Note: on Windows the pet roams on its own — cursor-following, grab/throw,
-window-climbing and notification-chasing are Linux-only for now.
+On Windows the pet follows your cursor and you can grab & throw it.
+Window-climbing and notification-chasing are Linux-only for now.
+To quit: Task Manager -> companion.exe -> End task.
 EOF
 (cd "$OUT" && zip -qr "companion-v$VERSION-windows-x86_64.zip" companion)
 rm -rf "$STAGE"

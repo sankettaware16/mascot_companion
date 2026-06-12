@@ -155,13 +155,15 @@ time (standard for unsigned indie apps; a paid Apple Developer ID removes that).
 | | runs | cursor-follow | grab/throw | climb windows | notifications |
 |---|---|---|---|---|---|
 | Linux X11/XWayland | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Windows | ✅ | ⏳ | ⏳ | ⏳ | ⏳ |
+| Windows | ✅ | ✅ | ✅ | ⏳ | ⏳ |
 | macOS | ✅ | ⏳ | ⏳ | ⏳ | ⏳ |
 
-On Windows/macOS the pet wanders, flies, emotes and reminds — but the
-desktop-senses (pointer, windows, notifications) are X11-only today. The
-native probes (Win32 `GetCursorPos`/`EnumWindows`, macOS `CGWindowList`) are
-the top roadmap item and slot into [platform.rs](src/platform.rs) without
+Windows uses its own presentation path (a small `UpdateLayeredWindow` surface —
+DWM rejects per-pixel-alpha GPU swapchains, which is also why there's no
+fullscreen overlay there) plus native cursor/button probes, so following and
+grab-and-throw work natively. Window-climbing/notifications on Windows
+(`EnumWindows`/toast listeners) and the macOS probes (`NSEvent`/`CGWindowList`)
+are the top roadmap items and slot into [platform.rs](src/platform.rs) without
 touching the engine.
 
 ## How it's built

@@ -90,12 +90,17 @@ fn mood_index(m: Mood) -> usize {
     }
 }
 
+// Each accessor serves one platform: UV methods feed the GPU path
+// (Linux/macOS), pixel-rect methods feed the CPU compositor (Windows) — so on
+// any single target half of them are "dead".
+#[allow(dead_code)]
 pub struct Sprites {
     pub pixels: Vec<u8>,
     pub width: u32,
     pub height: u32,
 }
 
+#[allow(dead_code)]
 impl Sprites {
     /// Normalised UV rect (u, v, w, h) for a mood/pose cell.
     pub fn uv(&self, mood: Mood, pose: Pose) -> [f32; 4] {
@@ -118,6 +123,26 @@ impl Sprites {
         let y = (EMOTE_PX + e.slot() * EMOTE_PX) as f32;
         let s = EMOTE_PX as f32;
         [x / self.width as f32, y / self.height as f32, s / self.width as f32, s / self.height as f32]
+    }
+
+    /// Pixel rect (x, y, w, h) of a mood/pose cell — for the CPU compositor.
+    pub fn cell_rect(&self, mood: Mood, pose: Pose) -> (u32, u32, u32, u32) {
+        (
+            (pose.index() * CELL as usize) as u32,
+            (mood_index(mood) * CELL as usize) as u32,
+            CELL as u32,
+            CELL as u32,
+        )
+    }
+
+    /// Pixel rect (x, y, w, h) of an emote icon — for the CPU compositor.
+    pub fn emote_rect(&self, e: Emote) -> (u32, u32, u32, u32) {
+        (
+            (POSES as i32 * CELL) as u32,
+            (EMOTE_PX + e.slot() * EMOTE_PX) as u32,
+            EMOTE_PX as u32,
+            EMOTE_PX as u32,
+        )
     }
 }
 
