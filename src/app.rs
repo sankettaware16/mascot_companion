@@ -10,6 +10,7 @@ use crate::creature::{Behavior, Creature, Locomotion, Senses};
 use crate::notify::NotifyWatch;
 use crate::pack::PetPack;
 use crate::platform::Probe;
+use crate::reminder::Urgency;
 #[cfg(not(windows))]
 use crate::creature::animation::CELL;
 #[cfg(not(windows))]
@@ -83,6 +84,8 @@ pub struct App {
     // --- speech ---
     banner_text: Option<String>,
     banner_ttl: f32,
+    banner_urgency: Urgency,
+    banner_age: f32,
     event_banner_cd: f32,
     was_long_idle: bool,
     last: Instant,
@@ -127,6 +130,8 @@ impl App {
             known_notifs: HashSet::new(),
             banner_text: None,
             banner_ttl: 0.0,
+            banner_urgency: Urgency::Passive,
+            banner_age: 0.0,
             event_banner_cd: 0.0,
             was_long_idle: false,
             last: Instant::now(),
@@ -276,6 +281,12 @@ impl ApplicationHandler for App {
         }
         self.creature = Some(creature);
 
+        // A broken config silently reverting to defaults is the worst kind of
+        // bug to chase — say it out loud instead.
+        if self.cfg.load_error {
+            self.say("Config error! Using defaults - check config.toml", 10.0);
+        }
+
         self.last = Instant::now();
         self.next_frame = Instant::now();
         event_loop.set_control_flow(ControlFlow::Poll);
@@ -355,9 +366,15 @@ impl App {
         if self.event_banner_cd > 0.0 {
             return;
         }
+        // Never let a casual quip replace a reminder mid-delivery.
+        if self.banner_text.is_some() && self.banner_urgency != Urgency::Passive {
+            return;
+        }
         self.event_banner_cd = 8.0;
         self.banner_text = Some(text.to_string());
         self.banner_ttl = ttl;
+        self.banner_urgency = Urgency::Passive;
+        self.banner_age = 0.0;
     }
 
     fn trigger_notification(&mut self, point: Vec2, app: Option<&str>) {
@@ -508,6 +525,7 @@ impl App {
             user_idle: self.activity.idle_seconds > 20.0,
             perch: self.perch,
             noti: self.noti.map(|(p, _)| p),
+            summon: self.banner_text.is_some() && self.banner_urgency != Urgency::Passive,
         };
         if let Some(c) = self.creature.as_mut() {
             c.update(dt, &self.world, &senses, &self.cfg);
@@ -515,15 +533,33 @@ impl App {
 
         // --- wellness & speech ------------------------------------------------------
         if let Some(speech) = self.wellness.update(dt, &self.activity, &self.cfg) {
-            if self.banner_text.is_none() {
+            // Urgent reminders may replace a passive quip; never the reverse.
+            if self.banner_text.is_none()
+                || (speech.urgency != Urgency::Passive && self.banner_urgency == Urgency::Passive)
+            {
                 self.banner_text = Some(speech.text);
                 self.banner_ttl = speech.ttl;
+                self.banner_urgency = speech.urgency;
+                self.banner_age = 0.0;
             }
         }
-        if self.banner_ttl > 0.0 {
-            self.banner_ttl -= dt;
-            if self.banner_ttl <= 0.0 {
+        if self.banner_text.is_some() {
+            self.banner_age += dt;
+            // A reminder counts as "heard" once the cursor has genuinely
+            // paused — i.e. the user stopped to drink/rest. Gentle reminders
+            // also give up quickly if you're clearly busy; strict ones hold on
+            // much longer (with a sanity cap so it can never pester forever).
+            let dismiss = match self.banner_urgency {
+                Urgency::Passive => {
+                    self.banner_ttl -= dt;
+                    self.banner_ttl <= 0.0
+                }
+                Urgency::Gentle => self.activity.idle_seconds > 15.0 || self.banner_age > 30.0,
+                Urgency::Strict => self.activity.idle_seconds > 25.0 || self.banner_age > 150.0,
+            };
+            if dismiss {
                 self.banner_text = None;
+                self.banner_urgency = Urgency::Passive;
             }
         }
         #[cfg(not(windows))]

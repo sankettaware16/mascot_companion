@@ -26,6 +26,8 @@ pub struct Senses {
     pub perch: Option<Vec2>,
     /// A fresh notification's position, while it's still interesting.
     pub noti: Option<Vec2>,
+    /// A reminder is being delivered: come to the cursor and stay with it.
+    pub summon: bool,
 }
 
 /// Everything that makes up the living companion at one instant.
@@ -153,6 +155,7 @@ impl Creature {
             user_idle: s.user_idle,
             perch: s.perch,
             noti: s.noti,
+            summon: s.summon,
             follow_cursor: cfg.follow_cursor,
             flee_cursor: cfg.flee_cursor,
             reduced_motion: cfg.reduced_motion,

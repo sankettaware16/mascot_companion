@@ -47,7 +47,6 @@ impl Activity {
                 self.active_seconds = 0.0;
             }
             self.idle_seconds = 0.0;
-            self.active_seconds += dt;
         } else {
             self.idle_seconds += dt;
             // Crossing the "stepped away" line exactly once.
@@ -55,6 +54,13 @@ impl Activity {
             if was_below && self.idle_seconds >= 90.0 {
                 self.break_started = true;
             }
+        }
+        // Stint time accrues on the wall clock while *recently* active — you
+        // are still "working" while typing or reading with the mouse parked
+        // (we only see the cursor, never the keyboard). Counting only
+        // mouse-motion frames made eye/break reminders nearly unreachable.
+        if self.idle_seconds < 30.0 {
+            self.active_seconds += dt;
         }
     }
 

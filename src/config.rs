@@ -33,18 +33,22 @@ pub struct Config {
     pub react_notifications: bool,
     /// Master switch for wellness reminders.
     pub reminders: Reminders,
+    /// Set when config.toml existed but failed to parse — surfaced as a
+    /// banner so a typo never silently reverts everything to defaults.
+    #[serde(skip)]
+    pub load_error: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
 pub struct Reminders {
     pub enabled: bool,
-    /// Remind to drink water every N minutes.
-    pub water_minutes: u64,
+    /// Remind to drink water every N minutes (fractions fine, e.g. 1.5).
+    pub water_minutes: f32,
     /// Remind to rest your eyes after N continuous active minutes.
-    pub eye_rest_minutes: u64,
+    pub eye_rest_minutes: f32,
     /// Suggest a stretch/break after N continuous active minutes.
-    pub break_minutes: u64,
+    pub break_minutes: f32,
 }
 
 impl Default for Config {
@@ -62,6 +66,7 @@ impl Default for Config {
             climb_windows: true,
             react_notifications: true,
             reminders: Reminders::default(),
+            load_error: false,
         }
     }
 }
@@ -70,9 +75,9 @@ impl Default for Reminders {
     fn default() -> Self {
         Self {
             enabled: true,
-            water_minutes: 45,
-            eye_rest_minutes: 25,
-            break_minutes: 55,
+            water_minutes: 45.0,
+            eye_rest_minutes: 25.0,
+            break_minutes: 55.0,
         }
     }
 }
@@ -85,6 +90,7 @@ impl Config {
         if let Ok(home) = std::env::var("HOME") {
             candidates.push(format!("{home}/.config/companion/config.toml"));
         }
+        let mut had_error = false;
         for candidate in &candidates {
             let candidate = candidate.as_str();
             if Path::new(candidate).exists() {
@@ -94,22 +100,48 @@ impl Config {
                             log_info(&format!("loaded config from {candidate}"));
                             return cfg.sanitized();
                         }
-                        Err(e) => log_info(&format!("config parse error ({candidate}): {e}")),
+                        Err(e) => {
+                            log_info(&format!("config parse error ({candidate}): {e}"));
+                            had_error = true;
+                        }
                     },
-                    Err(e) => log_info(&format!("config read error ({candidate}): {e}")),
+                    Err(e) => {
+                        log_info(&format!("config read error ({candidate}): {e}"));
+                        had_error = true;
+                    }
                 }
             }
         }
-        Config::default()
+        Config { load_error: had_error, ..Config::default() }
     }
 
     fn sanitized(mut self) -> Self {
         self.scale = self.scale.clamp(1.0, 12.0);
         self.fps = self.fps.clamp(8, 120);
+        // Floor reminder cadence so a typo can't make the pet spam banners.
+        self.reminders.water_minutes = self.reminders.water_minutes.max(0.5);
+        self.reminders.eye_rest_minutes = self.reminders.eye_rest_minutes.max(0.5);
+        self.reminders.break_minutes = self.reminders.break_minutes.max(0.5);
         self
     }
 }
 
 fn log_info(msg: &str) {
     eprintln!("[companion] {msg}");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Fractional minutes (the exact value that silently broke a user's
+    /// config) and plain integers must both parse.
+    #[test]
+    fn reminder_minutes_accept_fractions_and_integers() {
+        let c: Config =
+            toml::from_str("[reminders]\nwater_minutes = 1\neye_rest_minutes = 1.5").unwrap();
+        assert_eq!(c.reminders.water_minutes, 1.0);
+        assert_eq!(c.reminders.eye_rest_minutes, 1.5);
+        assert_eq!(c.reminders.break_minutes, 55.0); // untouched default
+    }
 }

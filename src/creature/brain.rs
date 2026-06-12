@@ -65,6 +65,8 @@ pub struct Ctx<'a> {
     pub perch: Option<Vec2>,
     /// A fresh notification's position, while it's still interesting.
     pub noti: Option<Vec2>,
+    /// A reminder is being delivered: go to the cursor and stay with it.
+    pub summon: bool,
     pub follow_cursor: bool,
     pub flee_cursor: bool,
     pub reduced_motion: bool,
@@ -124,9 +126,18 @@ impl Brain {
             self.timer = 0.2;
         }
 
+        // --- reminder delivery: bring the banner to the user -----------------
+        // Wakes it from sleep, overrides anger — being a caring friend comes
+        // before everything except physics.
+        if ctx.summon && ctx.cursor.is_some() {
+            self.behavior = Behavior::FollowCursor;
+            self.timer = 0.5;
+        }
+
         // --- a notification! rush over to see -------------------------------
         if let Some(n) = ctx.noti {
-            if ctx.mood != Mood::Angry
+            if !ctx.summon
+                && ctx.mood != Mood::Angry
                 && !matches!(self.behavior, Behavior::Investigate | Behavior::Sleep)
             {
                 self.behavior = Behavior::Investigate;
@@ -144,7 +155,7 @@ impl Brain {
 
         // --- sleep is earned, not random -------------------------------------
         // Only nod off when the *user* is away (or utterly exhausted).
-        if ctx.needs.energy < 0.05 || (ctx.needs.energy < 0.16 && ctx.user_idle) {
+        if !ctx.summon && (ctx.needs.energy < 0.05 || (ctx.needs.energy < 0.16 && ctx.user_idle)) {
             self.behavior = Behavior::Sleep;
         }
         if self.behavior == Behavior::Sleep && !ctx.user_idle && ctx.needs.energy > 0.4 {
@@ -155,7 +166,9 @@ impl Brain {
         let cursor_d = ctx.cursor.map(|c| (c - ctx.pos).length());
         let angry = ctx.mood == Mood::Angry;
         if let Some(d) = cursor_d {
-            if angry && d < 300.0 && self.behavior != Behavior::Sleep {
+            if ctx.summon {
+                // stay on delivery duty — skip flee/chase games
+            } else if angry && d < 300.0 && self.behavior != Behavior::Sleep {
                 // Don't touch me right now.
                 self.behavior = Behavior::FleeCursor;
                 self.timer = self.timer.max(0.4);
@@ -177,7 +190,7 @@ impl Brain {
                 self.timer = rng.gen_range(2.5..5.5);
                 self.follow_cd = rng.gen_range(20.0..45.0);
             }
-            if self.behavior == Behavior::FollowCursor && d > 650.0 {
+            if self.behavior == Behavior::FollowCursor && d > 650.0 && !ctx.summon {
                 self.timer = 0.0; // it got away; never mind
             }
         }

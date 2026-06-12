@@ -42,6 +42,6 @@ enabled = true
 # Friendly water nudge every N minutes.
 water_minutes = 45
 # Suggest resting your eyes after N continuous active minutes.
-eye_rest_minutes = 25
+eye_rest_minutes = 60
 # Suggest a stretch/break after N continuous active minutes.
-break_minutes = 55
+break_minutes = 90
